@@ -1,77 +1,69 @@
-# AI Retail Pricing Optimizer — Prototype
+# Data folder
 
-Interactive Streamlit app that recommends dynamic prices for retail SKUs
-(dairy and snacks) based on demand signals, competitor prices, time-of-day
-factors, and own-price elasticity. Compares an AI strategy against a static
-(everyday) pricing baseline.
+This folder holds Kaggle CSVs. **You do not need any files here to run the app** —
+when the folder is empty, the app falls back to Demo Mode (synthetic data).
 
-## Project structure
+## Supported datasets
+
+The app auto-detects either of these. If both are present, Favorita wins.
+
+### Option A — Store Item Demand Forecasting Challenge
+URL: https://www.kaggle.com/competitions/demand-forecasting-kernels-only/data
+
+Place `train.csv` here:
 
 ```
-.
-├── app.py                  # Streamlit app
-├── data/
-│   └── sample_skus.csv     # Synthetic SKU master (Kaggle-style schema)
-├── requirements.txt
-└── README.md
+data/train.csv
 ```
 
-## Run locally
+Columns expected: `date`, `store`, `item`, `sales`.
 
+### Option B — Store Sales (Favorita)
+URL: https://www.kaggle.com/competitions/store-sales-time-series-forecasting/data
+
+Place these files here (rename `train.csv` → `favorita_train.csv` to avoid a
+collision with Option A):
+
+```
+data/favorita_train.csv
+data/stores.csv          (optional)
+data/oil.csv             (optional)
+data/holidays_events.csv (optional)
+```
+
+Columns expected on `favorita_train.csv`: `date`, `store_nbr`, `family`, `sales`,
+`onpromotion`.
+
+## How to download
+
+Two equivalent options.
+
+### Option 1 — manual upload
+1. Sign in to Kaggle, accept the competition rules.
+2. Download the CSVs and drop them into this folder.
+
+### Option 2 — Kaggle CLI
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+pip install kaggle
+mkdir -p ~/.kaggle
+# Place your kaggle.json API key at ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+
+# Store Item Demand Forecasting
+kaggle competitions download -c demand-forecasting-kernels-only -p data
+unzip data/demand-forecasting-kernels-only.zip -d data
+
+# Or Favorita
+kaggle competitions download -c store-sales-time-series-forecasting -p data
+unzip data/store-sales-time-series-forecasting.zip -d data
+mv data/train.csv data/favorita_train.csv
 ```
 
-Then open the URL Streamlit prints (default `http://localhost:8501`).
+## What the app does with the data
 
-## Deploy as a shareable demo (Streamlit Community Cloud)
-
-Streamlit Community Cloud gives you a free public URL. Steps:
-
-1. Push this folder to a public GitHub repo (root must contain `app.py` and
-   `requirements.txt`).
-2. Sign in at <https://share.streamlit.io> with your GitHub account.
-3. Click **New app**, pick the repo, branch, and `app.py` as the entry point.
-4. Click **Deploy**. You'll get a `https://<your-app>.streamlit.app` URL you
-   can share.
-
-Alternative one-click hosts: **Hugging Face Spaces** (Streamlit SDK) and
-**Render**. Both accept the same `requirements.txt` + `app.py` layout.
-
-## Swap in real Kaggle data
-
-Replace `data/sample_skus.csv` with any file having these columns:
-
-| column              | description                                     |
-| ------------------- | ----------------------------------------------- |
-| `sku_id`            | unique identifier                               |
-| `sku_name`          | display name                                    |
-| `category`          | e.g. Dairy, Snacks                              |
-| `unit_cost`         | cost of goods (USD)                             |
-| `static_price`      | current/everyday shelf price                    |
-| `base_demand_units` | typical units sold per period at static price   |
-| `price_elasticity`  | own-price elasticity (negative number)          |
-| `competitor_price`  | observed competitor price                       |
-| `shelf_life_days`   | shelf life (used for perishability messaging)   |
-
-Good public datasets to mine for these fields:
-
-- **Retail Price Optimization** by Sandeep Singh (Kaggle) — price/units
-  panels you can regress for elasticity.
-- **Grocery Store Dataset** by Heeral Dedhia (Kaggle) — SKU master fields.
-- **Instacart Market Basket Analysis** (Kaggle) — demand baselines.
-
-A standard way to estimate elasticity from those datasets is to fit
-`log(units) ~ log(price) + promo + week + sku_fixed_effect` and read the
-coefficient on `log(price)` per SKU or category.
-
-## Pricing methodology (one paragraph)
-
-We start from the textbook profit-maximizing markup under constant
-elasticity, `P* = c·ε/(ε+1)`, blend it with the observed competitor price
-using a user-controlled anchoring weight, then apply a capped multiplicative
-tilt for demand signals and time-of-day, and finally clamp the result to a
-minimum-margin floor and a maximum allowed move from the static price. The
-app reports forecast units, revenue, and margin under both the static and
-AI strategies so you can see the trade-off directly.
+These public datasets contain only demand/sales — no prices, categories, vendor
+attributes, promotions, or inventory. The app **enriches** them with synthetic
+merchandising metadata (`src/data_loader.py::_enrich_with_synth_metadata`) so
+every UI screen still has the fields it needs. Real production deployments
+would replace the synthetic enrichment with the EDW item-master, vendor master,
+and promo calendar.
