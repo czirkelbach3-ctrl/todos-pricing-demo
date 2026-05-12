@@ -149,51 +149,107 @@ def run_optimizer(df: pd.DataFrame, inp: PricingInputs) -> pd.DataFrame:
 
 # ---------------------------------------------------------------------------
 # UI — Sidebar inputs
+# Two clearly separated groups:
+#   (A) Market Signals — observed conditions from the world right now
+#   (B) Pricing Strategy & Policy — levers the retailer chooses
+# Competitor *price* is per-SKU in the dataset; competitor *anchoring weight*
+# is a strategy choice and belongs in group B.
 # ---------------------------------------------------------------------------
-st.sidebar.header("Pricing Signals")
-
-demand_signal = st.sidebar.slider(
-    "Demand signal (1.0 = normal)",
-    min_value=0.6, max_value=1.6, value=1.0, step=0.05,
-    help="Lift or drop in expected demand vs baseline (e.g., promo lift, weather).",
+st.sidebar.title("Controls")
+st.sidebar.caption(
+    "Signals come from the market. Policies are your business levers. "
+    "Hover the ❓ on each input for a plain-English explanation."
 )
 
-competitor_weight = st.sidebar.slider(
-    "Competitor anchoring weight",
-    min_value=0.0, max_value=1.0, value=0.30, step=0.05,
-    help="0 = ignore competitor, 1 = match competitor exactly.",
+# ---- (A) MARKET SIGNALS ----------------------------------------------------
+st.sidebar.header("📡 Market Signals")
+st.sidebar.caption("What the world is telling us *right now*.")
+
+demand_signal = st.sidebar.slider(
+    "Demand signal (× baseline)",
+    min_value=0.6, max_value=1.6, value=1.0, step=0.05,
+    format="%.2fx",
+    help=(
+        "Multiplier on expected demand vs. a normal day. "
+        "Examples: 1.20 during a Super Bowl snacks push, "
+        "0.80 in a snowstorm that kills foot traffic. "
+        "1.00 means demand is exactly typical."
+    ),
 )
 
 time_of_day = st.sidebar.selectbox(
     "Time-of-day factor",
     options=[
-        ("Early morning (0.95)", 0.95),
-        ("Midday (1.00)", 1.00),
-        ("Afternoon (1.05)", 1.05),
-        ("Evening rush (1.15)", 1.15),
-        ("Late night (0.90)", 0.90),
+        ("Early morning (0.95×)", 0.95),
+        ("Midday (1.00×)", 1.00),
+        ("Afternoon (1.05×)", 1.05),
+        ("Evening rush (1.15×)", 1.15),
+        ("Late night (0.90×)", 0.90),
     ],
     index=1,
     format_func=lambda x: x[0],
+    help=(
+        "Daypart demand pattern. Evening rush sees more shoppers and lower "
+        "price sensitivity, late night sees fewer. Used the same way as the "
+        "demand signal, but for predictable intraday rhythms."
+    ),
 )
 time_of_day_factor = time_of_day[1]
+
+st.sidebar.markdown(
+    "*Competitor prices are pulled per-SKU from the dataset — "
+    "in production they'd refresh via a competitor-scraping feed.*"
+)
+
+# ---- (B) PRICING STRATEGY & POLICY -----------------------------------------
+st.sidebar.header("🎛️ Pricing Strategy & Policy")
+st.sidebar.caption("Levers *you* set. Change rarely.")
+
+competitor_weight_pct = st.sidebar.slider(
+    "Competitor anchoring weight",
+    min_value=0, max_value=100, value=30, step=5,
+    format="%d%%",
+    help=(
+        "How much you follow the competitor vs. your own elasticity-optimal "
+        "price. 0% = ignore competitor and price purely off elasticity. "
+        "100% = always match competitor. 30% is a common middle ground for "
+        "category captains."
+    ),
+)
+competitor_weight = competitor_weight_pct / 100
+
+min_margin_pct_int = st.sidebar.slider(
+    "Minimum margin floor",
+    min_value=0, max_value=50, value=15, step=1,
+    format="%d%%",
+    help=(
+        "Hard floor on contribution margin. AI will never recommend a price "
+        "below cost ÷ (1 − floor). Set at 15% to keep a reasonable cushion; "
+        "set lower to allow loss-leader pricing on traffic drivers."
+    ),
+)
+min_margin = min_margin_pct_int / 100
+
+max_change_pct_int = st.sidebar.slider(
+    "Max price move vs. static",
+    min_value=5, max_value=50, value=25, step=5,
+    format="%d%%",
+    help=(
+        "Customer-experience guardrail. Limits how far the AI can move price "
+        "in either direction vs. the everyday static price. Prevents sticker "
+        "shock and protects brand-pricing perception. 25% is a typical cap."
+    ),
+)
+max_change = max_change_pct_int / 100
 
 elasticity_override = st.sidebar.number_input(
     "Elasticity override (0 = use SKU value)",
     min_value=-5.0, max_value=0.0, value=0.0, step=0.1,
-    help="Negative number. Leave at 0 to use each SKU's estimated elasticity.",
-)
-
-min_margin = st.sidebar.slider(
-    "Minimum margin floor",
-    min_value=0.0, max_value=0.5, value=0.15, step=0.01,
-    format="%.0f%%",
-)
-
-max_change = st.sidebar.slider(
-    "Max price move vs static",
-    min_value=0.05, max_value=0.50, value=0.25, step=0.05,
-    format="%.0f%%",
+    help=(
+        "Scenario tool. Force every SKU to use the same elasticity to "
+        "stress-test the model. Leave at 0 to use each SKU's own estimate. "
+        "Negative numbers only — elasticity is always ≤ 0."
+    ),
 )
 
 inputs = PricingInputs(
@@ -211,9 +267,45 @@ inputs = PricingInputs(
 st.title("🛒 AI-Powered Retail Pricing Optimizer")
 st.caption(
     "Prototype for dynamic pricing on dairy & snacks SKUs. "
-    "Adjust signals in the sidebar to see how AI prices, demand, and margins shift "
-    "vs static (everyday) pricing."
+    "Adjust **market signals** and **pricing policy** in the sidebar to see how AI "
+    "prices, demand, and margins shift vs static (everyday) pricing."
 )
+
+with st.expander("📖 What do the sidebar inputs mean? (read me first)"):
+    st.markdown(
+        """
+        The sidebar splits into two groups because the inputs are fundamentally
+        different things — mixing them up is the #1 source of confusion in
+        pricing tools.
+
+        ### 📡 Market Signals — what the world tells us
+        These change *minute-to-minute* in a real system. In production they'd
+        come from data feeds, not human input.
+
+        | Input | What it represents | Example |
+        |---|---|---|
+        | **Demand signal** | Multiplier on baseline demand from one-off conditions | `1.20` during a Super Bowl run on snacks; `0.80` in bad weather |
+        | **Time-of-day factor** | Predictable intraday demand rhythm | Evening rush hour sees more, less price-sensitive shoppers |
+        | *Competitor price* | Observed shelf price at a rival retailer (per-SKU in the dataset) | Pulled from a competitor-scraping feed in production |
+
+        ### 🎛️ Pricing Strategy & Policy — levers you choose
+        These change *quarterly or annually* — set in a pricing committee, not
+        by the algorithm.
+
+        | Input | What it represents | Why it isn't a signal |
+        |---|---|---|
+        | **Competitor anchoring weight** | How much you *choose* to follow the competitor (0–100%) | The competitor price is the signal; *how much you react to it* is strategy |
+        | **Minimum margin floor** | Hard floor — never sell below this contribution margin | Business policy, not market data |
+        | **Max price move vs. static** | Customer-experience guardrail on how far you'll move | Brand-perception policy |
+        | **Elasticity override** | Scenario tool to stress-test all SKUs at one elasticity | Sensitivity testing, not real-time input |
+
+        ### TL;DR for the original question
+        > *"Should margin floor / max move / competitor weight be signals?"*
+        > **No.** They're policy levers. A signal is something the market sends
+        > you; a policy is something you decide. The previous version of this
+        > app conflated them — that's now fixed.
+        """
+    )
 
 df = load_skus()
 category_filter = st.multiselect(
